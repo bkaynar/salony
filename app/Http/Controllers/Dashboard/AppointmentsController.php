@@ -23,9 +23,14 @@ class AppointmentsController extends Controller
             ]);
         }
 
-        $appointments = Appointments::with(['customer', 'staff', 'services'])
-            ->where('salon_id', $user->salon_id)
-            ->orderBy('start_time', 'desc')
+        $query = Appointments::with(['customer', 'staff', 'services'])
+            ->where('salon_id', $user->salon_id);
+
+        if ($user->hasRole('staff')) {
+            $query->where('staff_id', $user->id);
+        }
+
+        $appointments = $query->orderBy('start_time', 'desc')
             ->get();
 
         return Inertia::render('Dashboard/Appointments/Index', [
@@ -33,39 +38,4 @@ class AppointmentsController extends Controller
         ]);
     }
 
-    /**
-     * Calendar view for appointments
-     */
-    public function calendar()
-    {
-        $user = Auth::user();
-
-        if (! $user || ! $user->salon_id) {
-            return Inertia::render('Dashboard/Appointments/Calendar', [
-                'events' => [],
-            ]);
-        }
-
-        $appointments = Appointments::with(['customer', 'staff'])
-            ->where('salon_id', $user->salon_id)
-            ->get();
-
-        $events = $appointments->map(function ($a) {
-            return [
-                'id' => $a->id,
-                'title' => ($a->customer?->name ?? 'Müşteri') . ' — ' . ($a->staff?->name ?? 'Personel'),
-                'start' => $a->start_time?->toIso8601String(),
-                'end' => $a->end_time?->toIso8601String(),
-                'extendedProps' => [
-                    'staff_id' => $a->staff_id,
-                    'status' => $a->status,
-                    'total_price' => $a->total_price,
-                ],
-            ];
-        })->toArray();
-
-        return Inertia::render('Dashboard/Appointments/Calendar', [
-            'events' => $events,
-        ]);
-    }
 }

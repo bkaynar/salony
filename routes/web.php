@@ -22,17 +22,9 @@ Route::get('dashboard/appointments', [\App\Http\Controllers\Dashboard\Appointmen
     ->middleware([
         'auth',
         'verified',
-        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin|staff',
     ])
     ->name('dashboard.appointments');
-
-Route::get('dashboard/appointments/calendar', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'calendar'])
-    ->middleware([
-        'auth',
-        'verified',
-        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
-    ])
-    ->name('dashboard.appointments.calendar');
 
 // Use subdomain as the route binding key (we store it in `subdomain` column)
 Route::get('/{salon:subdomain}', [SalonController::class, 'show'])->name('salons.show');

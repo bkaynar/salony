@@ -28,11 +28,6 @@ const mainNavItems: NavItem[] = [
         href: '/dashboard/appointments',
         icon: Calendar,
     },
-    {
-        title: 'Takvim',
-        href: '/dashboard/appointments/calendar',
-        icon: Calendar,
-    },
 ];
 
 const footerNavItems: NavItem[] = [
