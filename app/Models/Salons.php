@@ -48,4 +48,12 @@ class Salons extends Model
     {
         return $this->hasMany(Appointments::class);
     }
+
+    /**
+     * Use `subdomain` column for implicit route model binding and URL generation.
+     */
+    public function getRouteKeyName()
+    {
+        return 'subdomain';
+    }
 }

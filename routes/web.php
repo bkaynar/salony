@@ -17,6 +17,24 @@ Route::get('dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
-Route::get('/{salon:slug}', [SalonController::class, 'show'])->name('salons.show');
+// Salon admin: appointments page
+Route::get('dashboard/appointments', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'index'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.appointments');
+
+Route::get('dashboard/appointments/calendar', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'calendar'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.appointments.calendar');
+
+// Use subdomain as the route binding key (we store it in `subdomain` column)
+Route::get('/{salon:subdomain}', [SalonController::class, 'show'])->name('salons.show');
 
 require __DIR__.'/settings.php';
