@@ -37,3 +37,10 @@ export interface User {
 }
 
 export type BreadcrumbItemType = BreadcrumbItem;
+
+export interface Salon {
+  id: number;
+  name: string;
+  slug: string;
+  user_id: number;
+}
