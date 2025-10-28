@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { TrendingUp, DollarSign, Calendar, CreditCard, Banknote, Smartphone, RefreshCw } from 'lucide-vue-next'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { TrendingUp, TrendingDown, DollarSign, Calendar, CreditCard, Banknote, Smartphone, RefreshCw, Plus, Trash2, Edit, Receipt, Home, FileText, Package } from 'lucide-vue-next'
+import { useForm } from '@inertiajs/vue3'
 
 const breadcrumbItems = [
   { title: 'Dashboard', href: dashboard().url },
@@ -20,6 +24,8 @@ const props = defineProps({
   dailyRevenue: Array,
   monthlyRevenue: Array,
   paymentMethods: Array,
+  expenses: Array,
+  expensesByCategory: Array,
   dateRange: Object,
 })
 
@@ -83,6 +89,99 @@ const resetFilters = () => {
   endDate.value = lastDay.toISOString().split('T')[0]
   filterReports()
 }
+
+// Expense management
+const isExpenseDialogOpen = ref(false)
+const isEditExpenseDialogOpen = ref(false)
+const selectedExpense = ref(null)
+
+const expenseForm = useForm({
+  category: 'diger',
+  amount: '',
+  description: '',
+  expense_date: new Date().toISOString().split('T')[0],
+})
+
+const editExpenseForm = useForm({
+  category: '',
+  amount: '',
+  description: '',
+  expense_date: '',
+})
+
+const openCreateExpenseDialog = () => {
+  expenseForm.reset()
+  expenseForm.expense_date = new Date().toISOString().split('T')[0]
+  isExpenseDialogOpen.value = true
+}
+
+const submitExpense = () => {
+  expenseForm.post(route('dashboard.expenses.store'), {
+    onSuccess: () => {
+      isExpenseDialogOpen.value = false
+      expenseForm.reset()
+    },
+  })
+}
+
+const openEditExpenseDialog = (expense) => {
+  selectedExpense.value = expense
+  editExpenseForm.category = expense.category
+  editExpenseForm.amount = expense.amount
+  editExpenseForm.description = expense.description
+  editExpenseForm.expense_date = expense.expense_date
+  isEditExpenseDialogOpen.value = true
+}
+
+const submitEditExpense = () => {
+  if (!selectedExpense.value) return
+
+  editExpenseForm.put(route('dashboard.expenses.update', selectedExpense.value.id), {
+    onSuccess: () => {
+      isEditExpenseDialogOpen.value = false
+      editExpenseForm.reset()
+      selectedExpense.value = null
+    },
+  })
+}
+
+const deleteExpense = (expenseId) => {
+  if (!confirm('Bu gideri silmek istediğinizden emin misiniz?')) return
+
+  router.delete(route('dashboard.expenses.destroy', expenseId), {
+    preserveScroll: true,
+  })
+}
+
+const getCategoryLabel = (category) => {
+  const labels = {
+    personel: 'Personel Gideri',
+    kira: 'Kira Gideri',
+    fatura: 'Fatura',
+    diger: 'Diğer Giderler',
+  }
+  return labels[category] || category
+}
+
+const getCategoryIcon = (category) => {
+  const icons = {
+    personel: DollarSign,
+    kira: Home,
+    fatura: Receipt,
+    diger: Package,
+  }
+  return icons[category] || Package
+}
+
+const getCategoryColor = (category) => {
+  const colors = {
+    personel: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+    kira: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300',
+    fatura: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
+    diger: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300',
+  }
+  return colors[category] || 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+}
 </script>
 
 <template>
@@ -135,7 +234,7 @@ const resetFilters = () => {
       </Card>
 
       <!-- Stats Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <!-- Total Revenue -->
         <Card class="stat-card border-l-4 border-l-green-500">
           <CardHeader class="flex flex-row items-center justify-between pb-2">
@@ -143,7 +242,7 @@ const resetFilters = () => {
               Toplam Gelir
             </CardTitle>
             <div class="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <DollarSign class="h-6 w-6 text-green-600 dark:text-green-400" />
+              <TrendingUp class="h-6 w-6 text-green-600 dark:text-green-400" />
             </div>
           </CardHeader>
           <CardContent>
@@ -156,42 +255,62 @@ const resetFilters = () => {
           </CardContent>
         </Card>
 
-        <!-- Total Appointments -->
-        <Card class="stat-card border-l-4 border-l-blue-500">
+        <!-- Total Expenses -->
+        <Card class="stat-card border-l-4 border-l-red-500">
           <CardHeader class="flex flex-row items-center justify-between pb-2">
             <CardTitle class="text-sm font-medium text-muted-foreground">
-              Toplam Randevu
+              Toplam Gider
             </CardTitle>
-            <div class="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <Calendar class="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div class="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+              <TrendingDown class="h-6 w-6 text-red-600 dark:text-red-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <div class="text-3xl font-bold text-blue-600 dark:text-blue-400">
-              {{ stats.total_appointments }}
+            <div class="text-3xl font-bold text-red-600 dark:text-red-400">
+              {{ formatPrice(stats.total_expenses) }}
             </div>
             <p class="text-xs text-muted-foreground mt-2">
-              Tamamlanan randevular
+              Seçili dönem içinde
             </p>
           </CardContent>
         </Card>
 
-        <!-- Average Transaction -->
+        <!-- Net Income -->
+        <Card class="stat-card border-l-4 border-l-blue-500">
+          <CardHeader class="flex flex-row items-center justify-between pb-2">
+            <CardTitle class="text-sm font-medium text-muted-foreground">
+              Net Kar
+            </CardTitle>
+            <div class="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <DollarSign class="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div class="text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {{ formatPrice(stats.net_income) }}
+            </div>
+            <p class="text-xs text-muted-foreground mt-2">
+              Gelir - Gider
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Total Appointments -->
         <Card class="stat-card border-l-4 border-l-purple-500">
           <CardHeader class="flex flex-row items-center justify-between pb-2">
             <CardTitle class="text-sm font-medium text-muted-foreground">
-              Ortalama İşlem
+              Toplam Randevu
             </CardTitle>
             <div class="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <TrendingUp class="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              <Calendar class="h-6 w-6 text-purple-600 dark:text-purple-400" />
             </div>
           </CardHeader>
           <CardContent>
             <div class="text-3xl font-bold text-purple-600 dark:text-purple-400">
-              {{ formatPrice(stats.avg_transaction) }}
+              {{ stats.total_appointments }}
             </div>
             <p class="text-xs text-muted-foreground mt-2">
-              Randevu başına
+              Tamamlanan randevular
             </p>
           </CardContent>
         </Card>
@@ -327,7 +446,288 @@ const resetFilters = () => {
           </div>
         </CardContent>
       </Card>
+
+      <!-- Expense Management Section -->
+      <div class="mt-8">
+        <div class="flex justify-between items-center mb-6">
+          <div>
+            <h2 class="text-2xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">
+              Gider Yönetimi
+            </h2>
+            <p class="text-muted-foreground mt-1">Salon giderlerinizi takip edin</p>
+          </div>
+          <Button @click="openCreateExpenseDialog" class="bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800">
+            <Plus class="w-4 h-4 mr-2" />
+            Yeni Gider Ekle
+          </Button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Expenses by Category -->
+          <Card class="modern-card">
+            <CardHeader>
+              <CardTitle class="flex items-center gap-2">
+                <Receipt class="h-5 w-5 text-red-600 dark:text-red-400" />
+                Kategorilere Göre Giderler
+              </CardTitle>
+              <CardDescription>Gider kategorilerinin dağılımı</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div v-if="expensesByCategory && expensesByCategory.length > 0" class="space-y-4">
+                <div
+                  v-for="(category, index) in expensesByCategory"
+                  :key="index"
+                  class="expense-category-card p-4 rounded-lg border hover:shadow-md transition-all duration-200"
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg text-white">
+                        <component :is="getCategoryIcon(category.category)" class="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div class="font-semibold">{{ getCategoryLabel(category.category) }}</div>
+                        <div class="text-sm text-muted-foreground">{{ category.count }} gider</div>
+                      </div>
+                    </div>
+                    <Badge :class="getCategoryColor(category.category)" class="text-lg font-bold px-3 py-1">
+                      {{ formatPrice(category.total) }}
+                    </Badge>
+                  </div>
+                  <div class="mt-2">
+                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        class="bg-gradient-to-r from-red-500 to-rose-600 h-2 rounded-full transition-all duration-500"
+                        :style="{ width: stats.total_expenses > 0 ? `${(category.total / stats.total_expenses) * 100}%` : '0%' }"
+                      ></div>
+                    </div>
+                    <div class="text-xs text-muted-foreground mt-1 text-right">
+                      {{ stats.total_expenses > 0 ? ((category.total / stats.total_expenses) * 100).toFixed(1) : 0 }}% toplam giderden
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center py-8 text-muted-foreground">
+                Bu dönemde gider bulunmuyor
+              </div>
+            </CardContent>
+          </Card>
+
+          <!-- Expense List -->
+          <Card class="modern-card">
+            <CardHeader>
+              <CardTitle class="flex items-center gap-2">
+                <FileText class="h-5 w-5 text-red-600 dark:text-red-400" />
+                Gider Listesi
+              </CardTitle>
+              <CardDescription>Tüm gider kayıtları</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div v-if="expenses && expenses.length > 0" class="space-y-3 max-h-[500px] overflow-y-auto">
+                <div
+                  v-for="expense in expenses"
+                  :key="expense.id"
+                  class="expense-item p-4 rounded-lg border hover:shadow-md transition-all duration-200"
+                >
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <Badge :class="getCategoryColor(expense.category)">
+                          {{ getCategoryLabel(expense.category) }}
+                        </Badge>
+                        <span class="text-sm text-muted-foreground">
+                          {{ new Date(expense.expense_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) }}
+                        </span>
+                      </div>
+                      <div class="text-xl font-bold text-red-600 dark:text-red-400">
+                        {{ formatPrice(expense.amount) }}
+                      </div>
+                      <div v-if="expense.description" class="text-sm text-muted-foreground mt-1">
+                        {{ expense.description }}
+                      </div>
+                    </div>
+                    <div class="flex gap-2">
+                      <Button
+                        @click="openEditExpenseDialog(expense)"
+                        variant="outline"
+                        size="sm"
+                        class="h-8 w-8 p-0"
+                      >
+                        <Edit class="h-4 w-4" />
+                      </Button>
+                      <Button
+                        @click="deleteExpense(expense.id)"
+                        variant="destructive"
+                        size="sm"
+                        class="h-8 w-8 p-0"
+                      >
+                        <Trash2 class="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center py-8 text-muted-foreground">
+                Henüz gider eklenmemiş
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
+
+    <!-- Create Expense Dialog -->
+    <Dialog v-model:open="isExpenseDialogOpen">
+      <DialogContent class="max-w-md">
+        <DialogHeader class="modern-gradient-header">
+          <DialogTitle class="text-white flex items-center gap-2">
+            <Plus class="w-5 h-5" />
+            Yeni Gider Ekle
+          </DialogTitle>
+          <DialogDescription class="text-white/90">
+            Yeni bir gider kaydı oluşturun
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 p-4">
+          <div>
+            <Label for="expense-category" class="mb-2 block">Kategori</Label>
+            <Select v-model="expenseForm.category">
+              <SelectTrigger class="modern-input">
+                <SelectValue placeholder="Kategori seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personel">Personel Gideri</SelectItem>
+                <SelectItem value="kira">Kira Gideri</SelectItem>
+                <SelectItem value="fatura">Fatura</SelectItem>
+                <SelectItem value="diger">Diğer Giderler</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label for="expense-amount" class="mb-2 block">Tutar (₺)</Label>
+            <Input
+              v-model="expenseForm.amount"
+              id="expense-amount"
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              class="modern-input"
+            />
+          </div>
+
+          <div>
+            <Label for="expense-date" class="mb-2 block">Tarih</Label>
+            <Input
+              v-model="expenseForm.expense_date"
+              id="expense-date"
+              type="date"
+              class="modern-input"
+            />
+          </div>
+
+          <div>
+            <Label for="expense-description" class="mb-2 block">Açıklama (Opsiyonel)</Label>
+            <Textarea
+              v-model="expenseForm.description"
+              id="expense-description"
+              placeholder="Gider açıklaması..."
+              class="modern-input"
+              rows="3"
+            />
+          </div>
+
+          <div class="flex gap-3 pt-4">
+            <Button
+              @click="submitExpense"
+              :disabled="expenseForm.processing"
+              class="flex-1 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800"
+            >
+              Gider Ekle
+            </Button>
+            <Button @click="isExpenseDialogOpen = false" variant="outline" class="flex-1">
+              İptal
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Edit Expense Dialog -->
+    <Dialog v-model:open="isEditExpenseDialogOpen">
+      <DialogContent class="max-w-md">
+        <DialogHeader class="modern-gradient-header">
+          <DialogTitle class="text-white flex items-center gap-2">
+            <Edit class="w-5 h-5" />
+            Gider Düzenle
+          </DialogTitle>
+          <DialogDescription class="text-white/90">
+            Gider bilgilerini güncelleyin
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4 p-4">
+          <div>
+            <Label for="edit-expense-category" class="mb-2 block">Kategori</Label>
+            <Select v-model="editExpenseForm.category">
+              <SelectTrigger class="modern-input">
+                <SelectValue placeholder="Kategori seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personel">Personel Gideri</SelectItem>
+                <SelectItem value="kira">Kira Gideri</SelectItem>
+                <SelectItem value="fatura">Fatura</SelectItem>
+                <SelectItem value="diger">Diğer Giderler</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label for="edit-expense-amount" class="mb-2 block">Tutar (₺)</Label>
+            <Input
+              v-model="editExpenseForm.amount"
+              id="edit-expense-amount"
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              class="modern-input"
+            />
+          </div>
+
+          <div>
+            <Label for="edit-expense-date" class="mb-2 block">Tarih</Label>
+            <Input
+              v-model="editExpenseForm.expense_date"
+              id="edit-expense-date"
+              type="date"
+              class="modern-input"
+            />
+          </div>
+
+          <div>
+            <Label for="edit-expense-description" class="mb-2 block">Açıklama (Opsiyonel)</Label>
+            <Textarea
+              v-model="editExpenseForm.description"
+              id="edit-expense-description"
+              placeholder="Gider açıklaması..."
+              class="modern-input"
+              rows="3"
+            />
+          </div>
+
+          <div class="flex gap-3 pt-4">
+            <Button
+              @click="submitEditExpense"
+              :disabled="editExpenseForm.processing"
+              class="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+            >
+              Güncelle
+            </Button>
+            <Button @click="isEditExpenseDialogOpen = false" variant="outline" class="flex-1">
+              İptal
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </AppLayout>
 </template>
 
@@ -395,5 +795,40 @@ const resetFilters = () => {
 
 :root.dark .modern-input:hover {
   border-color: rgb(75 85 99);
+}
+
+.expense-category-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(249, 250, 251, 0.9) 100%);
+  transition: all 0.3s ease;
+}
+
+.expense-category-card:hover {
+  transform: translateX(4px);
+}
+
+:root.dark .expense-category-card {
+  background: linear-gradient(135deg, rgba(31, 41, 55, 0.9) 0%, rgba(17, 24, 39, 0.9) 100%);
+}
+
+.expense-item {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(249, 250, 251, 0.9) 100%);
+  transition: all 0.3s ease;
+  border-left: 3px solid rgb(239 68 68);
+}
+
+.expense-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+:root.dark .expense-item {
+  background: linear-gradient(135deg, rgba(31, 41, 55, 0.9) 0%, rgba(17, 24, 39, 0.9) 100%);
+}
+
+.modern-gradient-header {
+  background: linear-gradient(135deg, #dc2626 0%, #be123c 100%);
+  padding: 1.5rem;
+  margin: -1.5rem -1.5rem 0 -1.5rem;
+  border-radius: 0.5rem 0.5rem 0 0;
 }
 </style>

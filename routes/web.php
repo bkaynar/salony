@@ -117,6 +117,31 @@ Route::get('dashboard/reports', [\App\Http\Controllers\Dashboard\ReportsControll
     ])
     ->name('dashboard.reports');
 
+// Expense Management
+Route::post('dashboard/expenses', [\App\Http\Controllers\Dashboard\ReportsController::class, 'storeExpense'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.expenses.store');
+
+Route::put('dashboard/expenses/{expense}', [\App\Http\Controllers\Dashboard\ReportsController::class, 'updateExpense'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.expenses.update');
+
+Route::delete('dashboard/expenses/{expense}', [\App\Http\Controllers\Dashboard\ReportsController::class, 'destroyExpense'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.expenses.destroy');
+
 // Staff Management
 Route::get('dashboard/staff', [\App\Http\Controllers\Dashboard\StaffController::class, 'index'])
     ->middleware([
