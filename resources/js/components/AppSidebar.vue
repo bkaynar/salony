@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp } from 'lucide-vue-next';
+import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp, UserCog } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
 const mainNavItems: NavItem[] = [
@@ -32,6 +32,11 @@ const mainNavItems: NavItem[] = [
         title: 'Müşteriler',
         href: '/dashboard/customers',
         icon: Users,
+    },
+    {
+        title: 'Personel',
+        href: '/dashboard/staff',
+        icon: UserCog,
     },
     {
         title: 'Gelir Raporları',

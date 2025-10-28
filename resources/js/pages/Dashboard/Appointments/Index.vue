@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.vue'
 import { Head, router, useForm } from '@inertiajs/vue3'
 import { dashboard } from '@/routes'
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -48,6 +48,237 @@ const isPaymentDialogOpen = ref(false)
 const isDetailDialogOpen = ref(false)
 const selectedStaffId = ref(null)
 const selectedAppointment = ref(null)
+// Search terms for staff and customers in create/edit dialogs
+const staffSearch = ref('')
+const customerSearch = ref('')
+const staffDropdownOpen = ref(false)
+const customerDropdownOpen = ref(false)
+const serverStaffResults = ref([])
+const serverCustomerResults = ref([])
+const staffFetchTimer = ref(null)
+const customerFetchTimer = ref(null)
+const staffContainerRef = ref(null)
+const customerContainerRef = ref(null)
+const isCreateCustomerDialogOpen = ref(false)
+const newCustomer = ref({ name: '', phone: '', email: '', notes: '' })
+const staffHighlightedIndex = ref(-1)
+const customerHighlightedIndex = ref(-1)
+
+function selectStaff(staff) {
+  if (isCreateDialogOpen.value) {
+    createForm.staff_id = staff.id
+  }
+  if (isEditDialogOpen.value) {
+    editForm.staff_id = staff.id
+  }
+  staffSearch.value = staff.name || ''
+  staffDropdownOpen.value = false
+}
+
+function selectCustomer(customer) {
+  if (isCreateDialogOpen.value) {
+    createForm.customer_id = customer.id
+  }
+  if (isEditDialogOpen.value) {
+    editForm.customer_id = customer.id
+  }
+  customerSearch.value = customer.name || ''
+  customerDropdownOpen.value = false
+  customerHighlightedIndex.value = -1
+}
+
+async function submitNewCustomer() {
+  // Basic client-side validation
+  if (!newCustomer.value.name || newCustomer.value.name.trim() === '') return
+
+  const payload = {
+    name: newCustomer.value.name,
+    phone: newCustomer.value.phone,
+    email: newCustomer.value.email,
+    notes: newCustomer.value.notes,
+  }
+
+  const tokenMeta = document.querySelector('meta[name="csrf-token"]')
+  const csrf = tokenMeta ? tokenMeta.getAttribute('content') : ''
+
+  try {
+    const res = await fetch('/dashboard/customers', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    if (res.ok) {
+      // Close modal
+      isCreateCustomerDialogOpen.value = false
+      // Clear input
+      const nameQuery = payload.name
+      newCustomer.value = { name: '', phone: '', email: '', notes: '' }
+      // Refresh server results and select the newly created customer if found
+      await fetchCustomersFromServer(nameQuery)
+      // pick first matching result
+      if (serverCustomerResults.value && serverCustomerResults.value.length) {
+        const first = serverCustomerResults.value[0]
+        createForm.customer_id = first.id
+        customerSearch.value = first.name
+      }
+    } else {
+      // Try to parse JSON errors
+      // ignore for now — could show feedback
+    }
+  } catch (e) {
+    // ignore network errors for now
+  }
+}
+
+function resetStaffHighlight() {
+  staffHighlightedIndex.value = -1
+}
+
+function resetCustomerHighlight() {
+  customerHighlightedIndex.value = -1
+}
+
+// Debounced fetchers (server-side typeahead)
+async function fetchStaffFromServer(q) {
+  if (!q || q.length < 3) {
+    serverStaffResults.value = []
+    return
+  }
+  try {
+    const res = await fetch(`/dashboard/appointments/search/staff?q=${encodeURIComponent(q)}`, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    if (res.ok) {
+      serverStaffResults.value = await res.json()
+    }
+  } catch (e) {
+    // ignore network errors silently
+    serverStaffResults.value = []
+  }
+}
+
+async function fetchCustomersFromServer(q) {
+  if (!q || q.length < 3) {
+    serverCustomerResults.value = []
+    return
+  }
+  try {
+    const res = await fetch(`/dashboard/appointments/search/customers?q=${encodeURIComponent(q)}`, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    if (res.ok) {
+      serverCustomerResults.value = await res.json()
+    }
+  } catch (e) {
+    serverCustomerResults.value = []
+  }
+}
+
+function onStaffInput() {
+  staffDropdownOpen.value = true
+  if (staffFetchTimer.value) clearTimeout(staffFetchTimer.value)
+  const q = staffSearch.value.trim()
+  if (q.length < 3) {
+    serverStaffResults.value = []
+    resetStaffHighlight()
+    return
+  }
+  staffFetchTimer.value = setTimeout(() => fetchStaffFromServer(q), 300)
+}
+
+function onCustomerInput() {
+  customerDropdownOpen.value = true
+  if (customerFetchTimer.value) clearTimeout(customerFetchTimer.value)
+  const q = customerSearch.value.trim()
+  if (q.length < 3) {
+    serverCustomerResults.value = []
+    resetCustomerHighlight()
+    return
+  }
+  customerFetchTimer.value = setTimeout(() => fetchCustomersFromServer(q), 300)
+}
+
+// Keyboard handlers for dropdown navigation
+function onStaffKeydown(e) {
+  const list = filteredStaffList.value || []
+  if (!staffDropdownOpen.value) staffDropdownOpen.value = true
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    staffHighlightedIndex.value = Math.min(staffHighlightedIndex.value + 1, list.length - 1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    staffHighlightedIndex.value = Math.max(staffHighlightedIndex.value - 1, 0)
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (list[staffHighlightedIndex.value]) selectStaff(list[staffHighlightedIndex.value])
+    else if (list.length === 1) selectStaff(list[0])
+    return
+  }
+  if (e.key === 'Escape') {
+    staffDropdownOpen.value = false
+    resetStaffHighlight()
+    return
+  }
+}
+
+function onCustomerKeydown(e) {
+  const list = filteredCustomers.value || []
+  if (!customerDropdownOpen.value) customerDropdownOpen.value = true
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    customerHighlightedIndex.value = Math.min(customerHighlightedIndex.value + 1, list.length - 1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    customerHighlightedIndex.value = Math.max(customerHighlightedIndex.value - 1, 0)
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (list[customerHighlightedIndex.value]) selectCustomer(list[customerHighlightedIndex.value])
+    else if (list.length === 1) selectCustomer(list[0])
+    return
+  }
+  if (e.key === 'Escape') {
+    customerDropdownOpen.value = false
+    resetCustomerHighlight()
+    return
+  }
+}
+
+// Close dropdowns when clicking outside
+function handleDocumentClick(e) {
+  const sEl = staffContainerRef.value
+  if (sEl && !sEl.contains(e.target)) {
+    staffDropdownOpen.value = false
+  }
+  const cEl = customerContainerRef.value
+  if (cEl && !cEl.contains(e.target)) {
+    customerDropdownOpen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleDocumentClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick)
+})
 
 const paymentForm = useForm({
   payment_method: 'cash',
@@ -74,6 +305,9 @@ const editForm = useForm({
 
 function openCreateDialog(staffId = null) {
   selectedStaffId.value = staffId
+  // reset search inputs when opening create dialog
+  staffSearch.value = ''
+  customerSearch.value = ''
   // If staffId is provided, pre-select it, otherwise leave it null for user to select
   createForm.staff_id = staffId || (props.staffList.length === 1 ? props.staffList[0].id : null)
   createForm.customer_id = ''
@@ -94,6 +328,9 @@ function submitCreate() {
 
 function openEditDialog(appointment) {
   selectedAppointment.value = appointment
+  // reset search inputs when opening edit dialog
+  staffSearch.value = ''
+  customerSearch.value = ''
   editForm.staff_id = appointment.staff_id
   editForm.customer_id = appointment.customer_id
 
@@ -226,6 +463,32 @@ const totalSelectedDuration = computed(() => {
     const service = props.services.find(srv => srv.id === s.service_id)
     return sum + (service?.duration_minutes || 0)
   }, 0)
+})
+
+// Filtered lists for selects (searchable)
+const filteredStaffList = computed(() => {
+  const q = staffSearch.value.trim()
+  if (!q) return props.staffList
+  // If query is long enough, prefer server results (typeahead)
+  if (q.length >= 3) {
+    return serverStaffResults.value
+  }
+  const lower = q.toLowerCase()
+  return props.staffList.filter(s => (s.name || '').toLowerCase().includes(lower))
+})
+
+const filteredCustomers = computed(() => {
+  const q = customerSearch.value.trim()
+  if (!q) return props.customers
+  if (q.length >= 3) {
+    return serverCustomerResults.value
+  }
+  const lower = q.toLowerCase()
+  return props.customers.filter(c => {
+    const name = (c.name || '').toLowerCase()
+    const phone = (c.phone || '').toLowerCase()
+    return name.includes(lower) || phone.includes(lower)
+  })
 })
 
 function toggleService(serviceId) {
@@ -505,17 +768,33 @@ function getStatusColorForCalendar(status) {
                 <span class="w-1 h-5 bg-indigo-500 rounded-full"></span>
                 Personel
               </Label>
-              <select
-                v-model="createForm.staff_id"
-                id="create-staff"
-                class="modern-select"
-                required
-              >
-                <option :value="null" disabled>Personel seçin</option>
-                <option v-for="staff in staffList" :key="staff.id" :value="staff.id">
-                  {{ staff.name }}
-                </option>
-              </select>
+              <div class="relative" ref="staffContainerRef">
+                <input
+                  v-model="staffSearch"
+                  @focus="() => { staffDropdownOpen = true; resetStaffHighlight() }"
+                  @input="onStaffInput"
+                  @keydown="onStaffKeydown"
+                  type="text"
+                  placeholder="Personel ara (isim)"
+                  class="modern-input mb-2 w-full"
+                />
+
+                <div v-if="staffDropdownOpen" class="search-dropdown">
+                  <ul>
+                    <li v-for="(staff, idx) in filteredStaffList" :key="staff.id" class="search-item" @click="selectStaff(staff)" @mouseover="staffHighlightedIndex = idx" :class="{ 'active': staffHighlightedIndex === idx }">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-semibold">{{ (staff.name || '').charAt(0) }}</div>
+                        <div class="flex-1">
+                          <div class="font-medium">{{ staff.name }}</div>
+                          <div class="text-xs text-muted-foreground">{{ staff.email || '' }}</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li v-if="filteredStaffList.length === 0" class="search-empty">Personel bulunamadı</li>
+                  </ul>
+                </div>
+              </div>
+
             </div>
 
             <!-- Customer Selection -->
@@ -524,17 +803,41 @@ function getStatusColorForCalendar(status) {
                 <span class="w-1 h-5 bg-blue-500 rounded-full"></span>
                 Müşteri
               </Label>
-              <select
-                v-model="createForm.customer_id"
-                id="create-customer"
-                class="modern-select"
-                required
-              >
-                <option value="" disabled>Müşteri seçin</option>
-                <option v-for="customer in customers" :key="customer.id" :value="customer.id">
-                  {{ customer.name }} {{ customer.phone ? `(${customer.phone})` : '' }}
-                </option>
-              </select>
+              <div class="relative" ref="customerContainerRef">
+                <input
+                  v-model="customerSearch"
+                  @focus="() => { customerDropdownOpen = true; resetCustomerHighlight() }"
+                  @input="onCustomerInput"
+                  @keydown="onCustomerKeydown"
+                  type="text"
+                  placeholder="Müşteri ara (isim veya telefon)"
+                  class="modern-input mb-2 w-full"
+                />
+
+                <div v-if="customerDropdownOpen" class="search-dropdown">
+                  <ul>
+                              <li class="search-item" @click="isCreateCustomerDialogOpen = true" style="border-bottom:1px solid rgba(0,0,0,0.04); margin-bottom:0.5rem;">
+                                <div class="flex items-center gap-3">
+                                  <div class="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-semibold">+</div>
+                                  <div class="flex-1">
+                                    <div class="font-medium text-green-700">Yeni müşteri oluştur</div>
+                                    <div class="text-xs text-muted-foreground">Hızlı ekle</div>
+                                  </div>
+                                </div>
+                              </li>
+                              <li v-for="(customer, idx) in filteredCustomers" :key="customer.id" class="search-item" @click="selectCustomer(customer)" @mouseover="customerHighlightedIndex = idx" :class="{ 'active': customerHighlightedIndex === idx }">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold">{{ (customer.name || '').charAt(0) }}</div>
+                        <div class="flex-1">
+                          <div class="font-medium">{{ customer.name }}</div>
+                          <div class="text-xs text-muted-foreground">{{ customer.phone || customer.email || '' }}</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li v-if="filteredCustomers.length === 0" class="search-empty">Müşteri bulunamadı</li>
+                  </ul>
+                </div>
+              </div>
             </div>
 
             <!-- Date & Time -->
@@ -633,6 +936,40 @@ function getStatusColorForCalendar(status) {
         </DialogContent>
       </Dialog>
 
+      <!-- Create Customer Modal (quick add) -->
+      <Dialog v-model:open="isCreateCustomerDialogOpen">
+        <DialogContent class="max-w-md modern-modal">
+          <div class="modal-header-gradient flex-shrink-0">
+            <DialogHeader class="p-6 pb-4">
+              <DialogTitle class="text-2xl font-bold text-white flex items-center gap-3">
+                <div class="p-2 bg-white/20 rounded-lg backdrop-blur-sm">+</div>
+                Yeni Müşteri
+              </DialogTitle>
+            </DialogHeader>
+          </div>
+
+          <form @submit.prevent="submitNewCustomer" class="px-6 py-6 space-y-4">
+            <div>
+              <Label for="new-customer-name" class="text-sm font-semibold mb-2 block">Ad Soyad</Label>
+              <Input id="new-customer-name" v-model="newCustomer.name" class="modern-input w-full" required />
+            </div>
+            <div>
+              <Label for="new-customer-phone" class="text-sm font-semibold mb-2 block">Telefon</Label>
+              <Input id="new-customer-phone" v-model="newCustomer.phone" class="modern-input w-full" />
+            </div>
+            <div>
+              <Label for="new-customer-email" class="text-sm font-semibold mb-2 block">E-posta</Label>
+              <Input id="new-customer-email" v-model="newCustomer.email" class="modern-input w-full" />
+            </div>
+          </form>
+
+          <DialogFooter class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 border-t">
+            <Button variant="outline" @click="isCreateCustomerDialogOpen = false">İptal</Button>
+            <Button @click="submitNewCustomer" class="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800">Oluştur</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <!-- Edit Appointment Dialog -->
       <Dialog v-model:open="isEditDialogOpen">
         <DialogContent class="max-w-3xl max-h-[95vh] overflow-hidden p-0 modern-modal flex flex-col">
@@ -654,17 +991,32 @@ function getStatusColorForCalendar(status) {
                 <span class="w-1 h-5 bg-indigo-500 rounded-full"></span>
                 Personel
               </Label>
-              <select
-                v-model="editForm.staff_id"
-                id="edit-staff"
-                class="modern-select"
-                required
-              >
-                <option :value="null" disabled>Personel seçin</option>
-                <option v-for="staff in staffList" :key="staff.id" :value="staff.id">
-                  {{ staff.name }}
-                </option>
-              </select>
+              <div class="relative">
+                <input
+                  v-model="staffSearch"
+                  @focus="staffDropdownOpen = true"
+                  @input="staffDropdownOpen = true"
+                  type="text"
+                  placeholder="Personel ara (isim)"
+                  class="modern-input mb-2 w-full"
+                />
+
+                <div v-if="staffDropdownOpen" class="search-dropdown">
+                  <ul>
+                    <li v-for="staff in filteredStaffList" :key="staff.id" class="search-item" @click="selectStaff(staff)">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-semibold">{{ (staff.name || '').charAt(0) }}</div>
+                        <div class="flex-1">
+                          <div class="font-medium">{{ staff.name }}</div>
+                          <div class="text-xs text-muted-foreground">{{ staff.email || '' }}</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li v-if="filteredStaffList.length === 0" class="search-empty">Personel bulunamadı</li>
+                  </ul>
+                </div>
+              </div>
+
             </div>
 
             <!-- Customer Selection -->
@@ -673,17 +1025,40 @@ function getStatusColorForCalendar(status) {
                 <span class="w-1 h-5 bg-blue-500 rounded-full"></span>
                 Müşteri
               </Label>
-              <select
-                v-model="editForm.customer_id"
-                id="edit-customer"
-                class="modern-select"
-                required
-              >
-                <option value="" disabled>Müşteri seçin</option>
-                <option v-for="customer in customers" :key="customer.id" :value="customer.id">
-                  {{ customer.name }} {{ customer.phone ? `(${customer.phone})` : '' }}
-                </option>
-              </select>
+              <div class="relative">
+                <input
+                  v-model="customerSearch"
+                  @focus="customerDropdownOpen = true"
+                  @input="customerDropdownOpen = true"
+                  type="text"
+                  placeholder="Müşteri ara (isim veya telefon)"
+                  class="modern-input mb-2 w-full"
+                />
+
+                <div v-if="customerDropdownOpen" class="search-dropdown">
+                  <ul>
+                    <li class="search-item" @click="isCreateCustomerDialogOpen = true" style="border-bottom:1px solid rgba(0,0,0,0.04); margin-bottom:0.5rem;">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-semibold">+</div>
+                        <div class="flex-1">
+                          <div class="font-medium text-green-700">Yeni müşteri oluştur</div>
+                          <div class="text-xs text-muted-foreground">Hızlı ekle</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li v-for="customer in filteredCustomers" :key="customer.id" class="search-item" @click="selectCustomer(customer)">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold">{{ (customer.name || '').charAt(0) }}</div>
+                        <div class="flex-1">
+                          <div class="font-medium">{{ customer.name }}</div>
+                          <div class="text-xs text-muted-foreground">{{ customer.phone || customer.email || '' }}</div>
+                        </div>
+                      </div>
+                    </li>
+                    <li v-if="filteredCustomers.length === 0" class="search-empty">Müşteri bulunamadı</li>
+                  </ul>
+                </div>
+              </div>
             </div>
 
             <!-- Date & Time -->
@@ -1448,6 +1823,33 @@ function getStatusColorForCalendar(status) {
 </style>
 
 <style>
+/* Searchable dropdown styles */
+.search-dropdown {
+  position: absolute;
+  z-index: 40;
+  width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--card-bg, white);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.08);
+  padding: 0.5rem;
+}
+.search-dropdown ul { list-style: none; margin: 0; padding: 0; }
+.search-item {
+  padding: 0.5rem; cursor: pointer; border-radius: 0.5rem;
+}
+.search-item:hover { background: rgba(59,130,246,0.06); }
+.search-empty { padding: 0.75rem; color: #6b7280; }
+
+.search-item.active {
+  background: rgba(59,130,246,0.12);
+  outline: 2px solid rgba(59,130,246,0.12);
+}
+
+:root.dark .search-dropdown { background: #0f172a; border-color: rgba(255,255,255,0.06); }
+
 /* FullCalendar Modern Styling */
 .fc {
   --fc-border-color: rgb(226 232 240);

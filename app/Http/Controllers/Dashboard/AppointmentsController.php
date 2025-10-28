@@ -101,6 +101,69 @@ class AppointmentsController extends Controller
     }
 
     /**
+     * Server-side search for staff (typeahead)
+     */
+    public function searchStaff(Request $request)
+    {
+        $user = Auth::user();
+        $q = trim($request->get('q', ''));
+
+        if (! $user || ! $user->salon_id || $q === '') {
+            return response()->json([]);
+        }
+
+        $results = User::where('salon_id', $user->salon_id)
+            ->where('is_bookable', true)
+            ->where(function ($qbuilder) use ($q) {
+                $qbuilder->where('name', 'like', "%{$q}%")
+                    ->orWhere('email', 'like', "%{$q}%");
+            })
+            ->limit(20)
+            ->get(['id', 'name', 'email'])
+            ->map(function ($u) {
+                return [
+                    'id' => $u->id,
+                    'name' => $u->name,
+                    'email' => $u->email,
+                ];
+            });
+
+        return response()->json($results);
+    }
+
+    /**
+     * Server-side search for customers (typeahead)
+     */
+    public function searchCustomers(Request $request)
+    {
+        $user = Auth::user();
+        $q = trim($request->get('q', ''));
+
+        if (! $user || ! $user->salon_id || $q === '') {
+            return response()->json([]);
+        }
+
+        $results = \App\Models\Customer::where('salon_id', $user->salon_id)
+            ->where(function ($qb) use ($q) {
+                $qb->where('name', 'like', "%{$q}%")
+                    ->orWhere('phone', 'like', "%{$q}%")
+                    ->orWhere('email', 'like', "%{$q}%");
+            })
+            ->limit(20)
+            ->get(['id', 'name', 'phone', 'email'])
+            ->map(function ($c) {
+                return [
+                    'id' => $c->id,
+                    'name' => $c->name,
+                    'phone' => $c->phone,
+                    'email' => $c->email,
+                ];
+            });
+
+        return response()->json($results);
+    }
+
+    /**
      * Store a new appointment
      */
     public function store(Request $request)

@@ -26,6 +26,15 @@ Route::get('dashboard/appointments', [\App\Http\Controllers\Dashboard\Appointmen
     ])
     ->name('dashboard.appointments');
 
+// Typeahead search endpoints for appointments UI
+Route::get('dashboard/appointments/search/staff', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'searchStaff'])
+    ->middleware([ 'auth', 'verified', \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin|staff', ])
+    ->name('dashboard.appointments.search.staff');
+
+Route::get('dashboard/appointments/search/customers', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'searchCustomers'])
+    ->middleware([ 'auth', 'verified', \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin|staff', ])
+    ->name('dashboard.appointments.search.customers');
+
 Route::post('dashboard/appointments', [\App\Http\Controllers\Dashboard\AppointmentsController::class, 'store'])
     ->middleware([
         'auth',
@@ -107,6 +116,39 @@ Route::get('dashboard/reports', [\App\Http\Controllers\Dashboard\ReportsControll
         \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
     ])
     ->name('dashboard.reports');
+
+// Staff Management
+Route::get('dashboard/staff', [\App\Http\Controllers\Dashboard\StaffController::class, 'index'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.staff');
+
+Route::post('dashboard/staff', [\App\Http\Controllers\Dashboard\StaffController::class, 'store'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.staff.store');
+
+Route::put('dashboard/staff/{staff}', [\App\Http\Controllers\Dashboard\StaffController::class, 'update'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.staff.update');
+
+Route::delete('dashboard/staff/{staff}', [\App\Http\Controllers\Dashboard\StaffController::class, 'destroy'])
+    ->middleware([
+        'auth',
+        'verified',
+        \Spatie\Permission\Middleware\RoleMiddleware::class . ':salon_admin',
+    ])
+    ->name('dashboard.staff.destroy');
 
 // Use subdomain as the route binding key (we store it in `subdomain` column)
 Route::get('/{salon:subdomain}', [SalonController::class, 'show'])->name('salons.show');
