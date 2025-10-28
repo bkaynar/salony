@@ -59,4 +59,49 @@ class SalonsController extends Controller
 
         return back()->with('success', 'Salon silindi');
     }
+
+    public function impersonate(Salons $salon)
+    {
+        \Log::info('Impersonate method called for salon: ' . $salon->id);
+
+        // Salonun admin kullanıcısını bul
+        $salonAdmin = $salon->users()
+            ->whereHas('roles', function ($query) {
+                $query->where('name', 'salon_admin');
+            })
+            ->first();
+
+        if (!$salonAdmin) {
+            return back()->withErrors(['error' => 'Bu salonda admin kullanıcı bulunamadı']);
+        }
+
+        // Orijinal admin ID'sini session'a kaydet
+        session(['impersonated_by' => auth()->id()]);
+
+        // Salon admin olarak giriş yap
+        auth()->login($salonAdmin);
+
+        return redirect()->route('dashboard')->with('success', "Şu anda {$salon->name} salonu olarak giriş yaptınız");
+    }
+
+    public function leaveImpersonate()
+    {
+        $originalAdminId = session('impersonated_by');
+
+        if (!$originalAdminId) {
+            return redirect()->route('dashboard');
+        }
+
+        // Orijinal admin'e geri dön
+        $originalAdmin = \App\Models\User::find($originalAdminId);
+
+        if ($originalAdmin) {
+            auth()->login($originalAdmin);
+            session()->forget('impersonated_by');
+
+            return redirect()->route('admin.dashboard')->with('success', 'Admin hesabınıza geri döndünüz');
+        }
+
+        return redirect()->route('dashboard');
+    }
 }

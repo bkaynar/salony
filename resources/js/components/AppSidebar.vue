@@ -13,9 +13,18 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
-import { Link } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp, UserCog, CalendarOff, Scissors, Clock, Package, CreditCard } from 'lucide-vue-next';
+import { Link, usePage } from '@inertiajs/vue3';
+import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp, UserCog, CalendarOff, Scissors, Clock, Package, CreditCard, Building2, Shield } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
+import { computed } from 'vue';
+
+const page = usePage();
+const user = computed(() => page.props.auth?.user);
+
+// Check if user has admin role
+const isAdmin = computed(() => {
+    return user.value?.roles?.some((role: any) => role.name === 'admin');
+});
 
 const mainNavItems: NavItem[] = [
     {
@@ -61,6 +70,24 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+const adminNavItems: NavItem[] = [
+    {
+        title: 'Admin Dashboard',
+        href: '/admin',
+        icon: Shield,
+    },
+    {
+        title: 'Paketler',
+        href: '/admin/plans',
+        icon: Package,
+    },
+    {
+        title: 'Salonlar',
+        href: '/admin/salons',
+        icon: Building2,
+    },
+];
+
 const footerNavItems: NavItem[] = [
     {
         title: 'Github Repo',
@@ -90,7 +117,8 @@ const footerNavItems: NavItem[] = [
         </SidebarHeader>
 
         <SidebarContent>
-            <NavMain :items="mainNavItems" />
+            <NavMain v-if="!isAdmin" :items="mainNavItems" />
+            <NavMain v-if="isAdmin" :items="adminNavItems" />
         </SidebarContent>
 
         <SidebarFooter>

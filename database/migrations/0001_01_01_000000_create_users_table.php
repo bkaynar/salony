@@ -13,9 +13,9 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('salon_id')->constrained('salons')->onDelete('cascade'); // !! Her kullanıcı BİR salona aittir.
+            $table->foreignId('salon_id')->nullable()->constrained('salons')->onDelete('cascade'); // Admin kullanıcıları için null olabilir
             $table->string('name'); // Personel veya sahibin adı
-            $table->string('email'); // Global olarak unique OLMAMALI, salon bazında unique olmalı.
+            $table->string('email')->unique(); // Admin için global unique olmalı
             $table->string('password');
             $table->string('phone')->nullable();
             $table->boolean('is_bookable')->default(true); // Bu personel online randevuda görünür mü?
@@ -23,7 +23,6 @@ return new class extends Migration
             $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();
-            $table->unique(['salon_id', 'email']);
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

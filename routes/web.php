@@ -14,6 +14,10 @@ Route::get('/', function () {
 })->name('home');
 
 Route::get('dashboard', function () {
+    // Admin kullanıcıları admin paneline yönlendir
+    if (auth()->user()->hasRole('admin')) {
+        return redirect()->route('admin.dashboard');
+    }
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
@@ -300,10 +304,22 @@ Route::resource('dashboard/products', \App\Http\Controllers\Dashboard\ProductsCo
 Route::prefix('admin')->name('admin.')->middleware(['auth', 'verified', \Spatie\Permission\Middleware\RoleMiddleware::class . ':admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
     Route::resource('plans', \App\Http\Controllers\Admin\PlansController::class)->only(['index', 'store', 'update', 'destroy']);
-    Route::resource('salons', \App\Http\Controllers\Admin\SalonsController::class)->only(['index', 'update', 'destroy']);
+
+    // Salon routes - use ID instead of subdomain for admin panel
+    Route::get('salons', [\App\Http\Controllers\Admin\SalonsController::class, 'index'])->name('salons.index');
+    Route::put('salons/{salon:id}', [\App\Http\Controllers\Admin\SalonsController::class, 'update'])->name('salons.update');
+    Route::delete('salons/{salon:id}', [\App\Http\Controllers\Admin\SalonsController::class, 'destroy'])->name('salons.destroy');
+    Route::post('salons/{salon:id}/impersonate', [\App\Http\Controllers\Admin\SalonsController::class, 'impersonate'])->name('salons.impersonate');
 });
 
-// Use subdomain as the route binding key (we store it in `subdomain` column)
-Route::get('/{salon:subdomain}', [SalonController::class, 'show'])->name('salons.show');
+// Leave impersonation (accessible to impersonated users)
+Route::post('admin/leave-impersonate', [\App\Http\Controllers\Admin\SalonsController::class, 'leaveImpersonate'])
+    ->middleware(['auth', 'verified'])
+    ->name('admin.leave-impersonate');
 
 require __DIR__.'/settings.php';
+
+// Use subdomain as the route binding key (we store it in `subdomain` column)
+// This MUST be at the very end as it's a catch-all route
+Route::get('/{salon:subdomain}', [SalonController::class, 'show'])
+    ->name('salons.show');

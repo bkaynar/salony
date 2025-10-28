@@ -28,6 +28,6 @@ class Plans extends Model
 
     public function salons()
     {
-        return $this->hasMany(Salons::class);
+        return $this->hasMany(Salons::class, 'plan_id');
     }
 }

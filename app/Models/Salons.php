@@ -26,12 +26,12 @@ class Salons extends Model
 
     public function plan()
     {
-        return $this->belongsTo(Plans::class);
+        return $this->belongsTo(Plans::class, 'plan_id');
     }
 
     public function users()
     {
-        return $this->hasMany(User::class);
+        return $this->hasMany(User::class, 'salon_id');
     }
 
     public function products()

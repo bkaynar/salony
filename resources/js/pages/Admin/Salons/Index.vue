@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Building2, Edit, Trash2, Users, Package, Calendar, Search } from 'lucide-vue-next'
+import { Building2, Edit, Trash2, Users, Package, Calendar, Search, LogIn } from 'lucide-vue-next'
 import {
   Select,
   SelectContent,
@@ -74,6 +74,19 @@ function submitDelete() {
     onSuccess: () => {
       isDeleteDialogOpen.value = false
     },
+  })
+}
+
+function impersonateSalon(salon) {
+  const url = `/admin/salons/${salon.id}/impersonate`
+  console.log('Impersonating salon:', salon.id, 'URL:', url)
+  router.post(url, {}, {
+    onError: (errors) => {
+      console.error('Impersonate error:', errors)
+    },
+    onSuccess: () => {
+      console.log('Impersonate success')
+    }
   })
 }
 </script>
@@ -178,6 +191,15 @@ function submitDelete() {
 
               <!-- Actions -->
               <div class="flex gap-2">
+                <Button
+                  @click="impersonateSalon(salon)"
+                  variant="default"
+                  size="sm"
+                  class="bg-blue-600 hover:bg-blue-700"
+                >
+                  <LogIn class="w-4 h-4 mr-1.5" />
+                  Giriş Yap
+                </Button>
                 <Button
                   @click="openEditDialog(salon)"
                   variant="outline"
