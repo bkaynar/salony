@@ -49,8 +49,8 @@ class AppointmentsController extends Controller
                     return [
                         'id' => $appointment->id,
                         'title' => $appointment->customer?->name ?? 'Müşteri',
-                        'start' => $appointment->start_time?->toIso8601String(),
-                        'end' => $appointment->end_time?->toIso8601String(),
+                        'start' => $appointment->start_time, // Already a string, no need to convert
+                        'end' => $appointment->end_time,     // Already a string, no need to convert
                         'customer_id' => $appointment->customer_id,
                         'customer_name' => $appointment->customer?->name,
                         'customer_phone' => $appointment->customer?->phone,
@@ -173,7 +173,7 @@ class AppointmentsController extends Controller
         $validated = $request->validate([
             'staff_id' => 'required|exists:users,id',
             'customer_id' => 'required|exists:customers,id',
-            'start_time' => 'required|date',
+            'start_time' => 'required|string', // Changed from 'date' to prevent timezone conversion
             'services' => 'required|array|min:1',
             'services.*.service_id' => 'required|exists:services,id',
             'notes' => 'nullable|string',
@@ -199,8 +199,8 @@ class AppointmentsController extends Controller
             'salon_id' => $user->salon_id,
             'customer_id' => $validated['customer_id'],
             'staff_id' => $validated['staff_id'],
-            'start_time' => $startTime,
-            'end_time' => $endTime,
+            'start_time' => $startTime->format('Y-m-d H:i:s'), // Store as string to avoid timezone conversion
+            'end_time' => $endTime->format('Y-m-d H:i:s'),     // Store as string to avoid timezone conversion
             'total_price' => $totalPrice,
             'total_duration' => $totalDuration,
             'status' => 'confirmed',
@@ -235,15 +235,28 @@ class AppointmentsController extends Controller
         $validated = $request->validate([
             'staff_id' => 'sometimes|exists:users,id',
             'customer_id' => 'sometimes|exists:customers,id',
-            'start_time' => 'sometimes|date',
+            'start_time' => 'sometimes|string', // Changed from 'date' to prevent timezone conversion
             'services' => 'sometimes|array|min:1',
             'services.*.service_id' => 'required_with:services|exists:services,id',
             'status' => 'sometimes|in:confirmed,completed,cancelled,no_show',
             'notes' => 'nullable|string',
         ]);
 
+        // Handle payment status when appointment status changes
+        if (isset($validated['status'])) {
+            $oldStatus = $appointment->status;
+            $newStatus = $validated['status'];
+
+            // If changing FROM completed TO another status, delete the payment record
+            if ($oldStatus === 'completed' && $newStatus !== 'completed') {
+                Payments::where('appointment_id', $appointment->id)
+                    ->where('salon_id', $user->salon_id)
+                    ->delete();
+            }
+        }
+
         // If services changed, recalculate totals
-        if (isset($validated['services'])) {
+        if (isset($validated['services']) && is_array($validated['services']) && count($validated['services']) > 0) {
             $totalPrice = 0;
             $totalDuration = 0;
 
@@ -259,8 +272,10 @@ class AppointmentsController extends Controller
 
             // Recalculate end time if start time exists
             $startTime = new \DateTime($validated['start_time'] ?? $appointment->start_time);
-            $validated['end_time'] = (clone $startTime)->modify("+{$totalDuration} minutes");
+            $endTime = (clone $startTime)->modify("+{$totalDuration} minutes");
+            $validated['end_time'] = $endTime->format('Y-m-d H:i:s'); // Store as string to avoid timezone conversion
 
+            // Only update services if they actually changed
             // Delete old services and create new ones
             $appointment->services()->delete();
             foreach ($servicesList as $service) {

@@ -24,11 +24,12 @@ class Appointments extends Model
     ];
 
     protected $casts = [
-        'start_time' => 'datetime',
-        'end_time' => 'datetime',
         'total_price' => 'integer',
         'total_duration' => 'integer',
     ];
+
+    // Don't cast start_time and end_time to datetime to avoid timezone conversion
+    // They will be stored and retrieved as strings
 
     public function salon()
     {

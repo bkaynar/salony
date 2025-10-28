@@ -74,8 +74,8 @@ class CustomersController extends Controller
             ->map(function ($appointment) {
                 return [
                     'id' => $appointment->id,
-                    'start_time' => $appointment->start_time?->toIso8601String(),
-                    'end_time' => $appointment->end_time?->toIso8601String(),
+                    'start_time' => $appointment->start_time, // Already a string
+                    'end_time' => $appointment->end_time,     // Already a string
                     'staff_name' => $appointment->staff?->name,
                     'total_price' => $appointment->total_price / 100, // Convert from kuruş to TL
                     'total_duration' => $appointment->total_duration,

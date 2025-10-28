@@ -355,13 +355,33 @@ function openEditDialog(appointment) {
 
 function submitEdit() {
   if (!selectedAppointment.value) return
-  editForm.put(route('dashboard.appointments.update', selectedAppointment.value.id), {
-    onSuccess: () => {
-      isEditDialogOpen.value = false
-      editForm.reset()
-      selectedAppointment.value = null
-    },
-  })
+
+  // Create a copy of form data
+  const formData = {
+    staff_id: editForm.staff_id,
+    customer_id: editForm.customer_id,
+    start_time: editForm.start_time,
+    status: editForm.status,
+    notes: editForm.notes,
+  }
+
+  // Only include services if they were modified (array has items)
+  if (editForm.services && editForm.services.length > 0) {
+    formData.services = editForm.services
+  }
+
+  console.log('Submitting edit with data:', formData)
+  console.log('Services count:', editForm.services?.length)
+
+  // Use transform to send custom data
+  editForm.transform(() => formData)
+    .put(route('dashboard.appointments.update', selectedAppointment.value.id), {
+      onSuccess: () => {
+        isEditDialogOpen.value = false
+        editForm.reset()
+        selectedAppointment.value = null
+      },
+    })
 }
 
 function openDetailDialog(appointment) {
