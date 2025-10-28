@@ -37,9 +37,13 @@ class PlansController extends Controller
             'price_monthly' => 'required|numeric|min:0',
             'price_yearly' => 'required|numeric|min:0',
             'max_staff_count' => 'required|integer|min:1',
-            'allow_online_booking' => 'boolean',
-            'allow_sms_notifications' => 'boolean',
+            'allow_online_booking' => 'sometimes|boolean',
+            'allow_sms_notifications' => 'sometimes|boolean',
         ]);
+
+        // Default values for booleans if not present
+        $validated['allow_online_booking'] = $validated['allow_online_booking'] ?? false;
+        $validated['allow_sms_notifications'] = $validated['allow_sms_notifications'] ?? false;
 
         Plans::create($validated);
 
@@ -53,9 +57,17 @@ class PlansController extends Controller
             'price_monthly' => 'sometimes|numeric|min:0',
             'price_yearly' => 'sometimes|numeric|min:0',
             'max_staff_count' => 'sometimes|integer|min:1',
-            'allow_online_booking' => 'boolean',
-            'allow_sms_notifications' => 'boolean',
+            'allow_online_booking' => 'sometimes|boolean',
+            'allow_sms_notifications' => 'sometimes|boolean',
         ]);
+
+        // Ensure booleans are set (unchecked switches don't send false, they send nothing)
+        if ($request->has('allow_online_booking')) {
+            $validated['allow_online_booking'] = $request->boolean('allow_online_booking');
+        }
+        if ($request->has('allow_sms_notifications')) {
+            $validated['allow_sms_notifications'] = $request->boolean('allow_sms_notifications');
+        }
 
         $plan->update($validated);
 

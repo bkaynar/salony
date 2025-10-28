@@ -59,7 +59,12 @@ function submitCreate() {
 
 function openEditDialog(plan) {
   selectedPlan.value = plan
-  editForm.fill(plan)
+  editForm.name = plan.name
+  editForm.price_monthly = plan.price_monthly
+  editForm.price_yearly = plan.price_yearly
+  editForm.max_staff_count = plan.max_staff_count
+  editForm.allow_online_booking = plan.allow_online_booking
+  editForm.allow_sms_notifications = plan.allow_sms_notifications
   isEditDialogOpen.value = true
 }
 

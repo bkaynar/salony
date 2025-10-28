@@ -36,17 +36,22 @@ class Salons extends Model
 
     public function products()
     {
-        return $this->hasMany(Products::class);
+        return $this->hasMany(Products::class, 'salon_id');
     }
 
     public function payments()
     {
-        return $this->hasMany(Payments::class);
+        return $this->hasMany(Payments::class, 'salon_id');
     }
 
     public function appointments()
     {
-        return $this->hasMany(Appointments::class);
+        return $this->hasMany(Appointments::class, 'salon_id');
+    }
+
+    public function services()
+    {
+        return $this->hasMany(Service::class, 'salon_id');
     }
 
     /**

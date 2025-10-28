@@ -59,8 +59,12 @@ const faqs = ref([
                     <a href="#testimonials" class="text-gray-600 hover:text-blue-600 transition-colors">Yorumlar</a>
                 </nav>
                 <div class="flex items-center gap-2">
+                    <a href="/login">
                     <Button variant="ghost">Giriş Yap</Button>
+                    </a>
+                    <a href="/register">
                     <Button>14 Gün Ücretsiz Dene</Button>
+                    </a>
                 </div>
             </div>
         </header>
