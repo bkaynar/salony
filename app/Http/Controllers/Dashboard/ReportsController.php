@@ -6,10 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\Payments;
 use App\Models\Appointments;
 use App\Models\Expenses;
+use App\Exports\FinancialReportExport;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ReportsController extends Controller
 {
@@ -239,5 +242,222 @@ class ReportsController extends Controller
         $expense->delete();
 
         return back()->with('success', 'Gider silindi');
+    }
+
+    /**
+     * Export report as PDF
+     */
+    public function exportPdf(Request $request)
+    {
+        $user = Auth::user();
+
+        if (! $user || ! $user->salon_id) {
+            abort(403);
+        }
+
+        $reportData = $this->getReportData($request, $user);
+        $periodLabel = $this->getPeriodLabel($request);
+
+        $pdf = Pdf::loadView('reports.financial-pdf', array_merge($reportData, [
+            'period' => $periodLabel,
+            'salon' => $user->salon,
+        ]));
+
+        $filename = 'mali-rapor-' . now()->format('Y-m-d') . '.pdf';
+
+        return $pdf->download($filename);
+    }
+
+    /**
+     * Export report as Excel
+     */
+    public function exportExcel(Request $request)
+    {
+        $user = Auth::user();
+
+        if (! $user || ! $user->salon_id) {
+            abort(403);
+        }
+
+        $reportData = $this->getReportData($request, $user);
+        $periodLabel = $this->getPeriodLabel($request);
+
+        $filename = 'mali-rapor-' . now()->format('Y-m-d') . '.xlsx';
+
+        return Excel::download(new FinancialReportExport($reportData, $periodLabel), $filename);
+    }
+
+    /**
+     * Get report data based on request parameters
+     */
+    private function getReportData(Request $request, $user)
+    {
+        // Determine date range based on period parameter
+        $period = $request->input('period', 'month');
+        $customStart = $request->input('start_date');
+        $customEnd = $request->input('end_date');
+
+        if ($customStart && $customEnd) {
+            // Custom date range
+            $startDate = Carbon::parse($customStart)->startOfDay();
+            $endDate = Carbon::parse($customEnd)->endOfDay();
+        } else {
+            // Predefined periods
+            switch ($period) {
+                case 'day':
+                    $startDate = Carbon::now()->startOfDay();
+                    $endDate = Carbon::now()->endOfDay();
+                    break;
+                case 'week':
+                    $startDate = Carbon::now()->startOfWeek();
+                    $endDate = Carbon::now()->endOfWeek();
+                    break;
+                case 'month':
+                    $startDate = Carbon::now()->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                case '3months':
+                    $startDate = Carbon::now()->subMonths(3)->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                case '6months':
+                    $startDate = Carbon::now()->subMonths(6)->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                case '9months':
+                    $startDate = Carbon::now()->subMonths(9)->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                case 'year':
+                    $startDate = Carbon::now()->subMonths(12)->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                default:
+                    $startDate = Carbon::now()->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+            }
+        }
+
+        // Fetch all data
+        $totalRevenue = Payments::where('salon_id', $user->salon_id)
+            ->where('status', 'completed')
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->sum('amount');
+
+        $totalAppointments = Appointments::where('salon_id', $user->salon_id)
+            ->where('status', 'completed')
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->count();
+
+        $totalExpenses = Expenses::where('salon_id', $user->salon_id)
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->sum('amount');
+
+        $paymentMethods = Payments::where('salon_id', $user->salon_id)
+            ->where('status', 'completed')
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->selectRaw('method, SUM(amount) as total, COUNT(*) as count')
+            ->groupBy('method')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'method' => $item->method,
+                    'total' => $item->total / 100,
+                    'count' => $item->count,
+                ];
+            })
+            ->toArray();
+
+        $expensesByCategory = Expenses::where('salon_id', $user->salon_id)
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->selectRaw('category, SUM(amount) as total, COUNT(*) as count')
+            ->groupBy('category')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'category' => $item->category,
+                    'total' => $item->total / 100,
+                    'count' => $item->count,
+                ];
+            })
+            ->toArray();
+
+        $dailyRevenue = Payments::where('salon_id', $user->salon_id)
+            ->where('status', 'completed')
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->selectRaw('DATE(created_at) as date, SUM(amount) as total, COUNT(*) as count')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'date' => $item->date,
+                    'total' => $item->total / 100,
+                    'count' => $item->count,
+                ];
+            })
+            ->toArray();
+
+        $monthlyRevenue = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $month = Carbon::now()->subMonths($i);
+            $monthStart = $month->copy()->startOfMonth();
+            $monthEnd = $month->copy()->endOfMonth();
+
+            $revenue = Payments::where('salon_id', $user->salon_id)
+                ->where('status', 'completed')
+                ->whereBetween('created_at', [$monthStart, $monthEnd])
+                ->sum('amount');
+
+            $appointments = Appointments::where('salon_id', $user->salon_id)
+                ->where('status', 'completed')
+                ->whereBetween('created_at', [$monthStart, $monthEnd])
+                ->count();
+
+            $monthlyRevenue[] = [
+                'month' => $month->format('M Y'),
+                'revenue' => $revenue / 100,
+                'appointments' => $appointments,
+            ];
+        }
+
+        return [
+            'stats' => [
+                'total_revenue' => $totalRevenue / 100,
+                'total_expenses' => $totalExpenses / 100,
+                'net_income' => ($totalRevenue - $totalExpenses) / 100,
+                'total_appointments' => $totalAppointments,
+            ],
+            'paymentMethods' => $paymentMethods,
+            'expensesByCategory' => $expensesByCategory,
+            'dailyRevenue' => $dailyRevenue,
+            'monthlyRevenue' => $monthlyRevenue,
+        ];
+    }
+
+    /**
+     * Get period label for report
+     */
+    private function getPeriodLabel(Request $request)
+    {
+        $period = $request->input('period', 'month');
+        $customStart = $request->input('start_date');
+        $customEnd = $request->input('end_date');
+
+        if ($customStart && $customEnd) {
+            return Carbon::parse($customStart)->format('d.m.Y') . ' - ' . Carbon::parse($customEnd)->format('d.m.Y');
+        }
+
+        $labels = [
+            'day' => 'Günlük Rapor (' . Carbon::now()->format('d.m.Y') . ')',
+            'week' => 'Haftalık Rapor (' . Carbon::now()->startOfWeek()->format('d.m.Y') . ' - ' . Carbon::now()->endOfWeek()->format('d.m.Y') . ')',
+            'month' => 'Aylık Rapor (' . Carbon::now()->format('F Y') . ')',
+            '3months' => 'Son 3 Ay',
+            '6months' => 'Son 6 Ay',
+            '9months' => 'Son 9 Ay',
+            'year' => 'Son 12 Ay',
+        ];
+
+        return $labels[$period] ?? 'Mali Rapor';
     }
 }

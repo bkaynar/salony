@@ -485,6 +485,7 @@ function formatDate(dateString) {
 <style scoped>
 .staff-card {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 1rem;
 }
 
 .staff-card:hover {

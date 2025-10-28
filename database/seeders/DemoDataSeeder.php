@@ -33,7 +33,8 @@ class DemoDataSeeder extends Seeder
 
         // Create salon admin
         $admin = User::firstOrCreate(
-            ['email' => 'admin@demo.com'],
+            ['email' => '
+            '],
             [
                 'name' => 'Salon Sahibi',
                 'salon_id' => $salon->id,

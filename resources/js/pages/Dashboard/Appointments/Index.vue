@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Edit, Trash2, Calendar, Clock, DollarSign, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, CreditCard } from 'lucide-vue-next'
+import { Plus, Edit, Trash2, Calendar, Clock, DollarSign, CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, CreditCard, Bell, MessageCircle, ExternalLink } from 'lucide-vue-next'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -46,8 +46,13 @@ const isEditDialogOpen = ref(false)
 const isDeleteDialogOpen = ref(false)
 const isPaymentDialogOpen = ref(false)
 const isDetailDialogOpen = ref(false)
+const isNotificationsDialogOpen = ref(false)
 const selectedStaffId = ref(null)
 const selectedAppointment = ref(null)
+const upcomingAppointments = ref([])
+const selectedDays = ref(2)
+const loadingNotifications = ref(false)
+const staffTimeOffs = ref([])
 // Search terms for staff and customers in create/edit dialogs
 const staffSearch = ref('')
 const customerSearch = ref('')
@@ -63,6 +68,24 @@ const isCreateCustomerDialogOpen = ref(false)
 const newCustomer = ref({ name: '', phone: '', email: '', notes: '' })
 const staffHighlightedIndex = ref(-1)
 const customerHighlightedIndex = ref(-1)
+
+// Current date and time
+const currentDateTime = ref('')
+const updateCurrentDateTime = () => {
+  const now = new Date()
+  const options = {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }
+  currentDateTime.value = now.toLocaleDateString('tr-TR', options)
+}
+
+let dateTimeInterval = null
 
 function selectStaff(staff) {
   if (isCreateDialogOpen.value) {
@@ -278,6 +301,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick)
+  // Clear the clock interval
+  if (dateTimeInterval) {
+    clearInterval(dateTimeInterval)
+  }
 })
 
 const paymentForm = useForm({
@@ -387,6 +414,58 @@ function submitEdit() {
 function openDetailDialog(appointment) {
   selectedAppointment.value = appointment
   isDetailDialogOpen.value = true
+}
+
+// Handle drag & drop and resize events
+async function handleEventTimeChange(info) {
+  const appointment = info.event.extendedProps.appointment
+  const newStartTime = info.event.start
+  const newEndTime = info.event.end
+
+  // Format dates as strings (Y-m-d H:i:s)
+  const formatDateTime = (date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  }
+
+  const formattedStart = formatDateTime(newStartTime)
+  const formattedEnd = newEndTime ? formatDateTime(newEndTime) : null
+
+  try {
+    // Update appointment via API
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+    const response = await fetch(route('dashboard.appointments.update', appointment.id), {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({
+        start_time: formattedStart,
+        // If end time changed (resize), include it
+        ...(formattedEnd && { end_time: formattedEnd }),
+      }),
+    })
+
+    if (!response.ok) {
+      // Revert the change if update failed
+      info.revert()
+      alert('Randevu güncellenemedi. Lütfen tekrar deneyin.')
+    } else {
+      // Success - reload page to get fresh data
+      router.reload({ only: ['staffList'] })
+    }
+  } catch (error) {
+    console.error('Error updating appointment:', error)
+    info.revert()
+    alert('Bir hata oluştu. Lütfen tekrar deneyin.')
+  }
 }
 
 function openDeleteDialog(appointment) {
@@ -541,7 +620,9 @@ const calendarOptions = {
   height: 'auto',
   expandRows: true,
   nowIndicator: true,
-  editable: false,
+  editable: true, // Enable drag and drop!
+  eventStartEditable: true, // Allow dragging events to different times
+  eventDurationEditable: true, // Allow resizing events
   selectable: true,
   selectMirror: true,
   dayMaxEvents: true,
@@ -560,8 +641,29 @@ const calendarOptions = {
     endTime: '18:00',
   },
   eventClick: (info) => {
-    const appointment = info.event.extendedProps.appointment
-    openDetailDialog(appointment)
+    // Only open dialog for appointments, not time offs
+    if (info.event.extendedProps.type === 'appointment') {
+      const appointment = info.event.extendedProps.appointment
+      openDetailDialog(appointment)
+    }
+  },
+  eventDrop: async (info) => {
+    // Only allow dragging appointments, not time offs
+    if (info.event.extendedProps.type !== 'appointment') {
+      info.revert()
+      return
+    }
+    // When an event is dragged to a new time/date
+    await handleEventTimeChange(info)
+  },
+  eventResize: async (info) => {
+    // Only allow resizing appointments, not time offs
+    if (info.event.extendedProps.type !== 'appointment') {
+      info.revert()
+      return
+    }
+    // When an event is resized (duration changed)
+    await handleEventTimeChange(info)
   },
   select: (info) => {
     // When user selects a time slot
@@ -641,31 +743,70 @@ async function calendarToday() {
 // Prepare events for calendar from all staff
 const calendarEvents = computed(() => {
   const events = []
+  // Add appointments
   props.staffList.forEach(staff => {
     staff.appointments.forEach(appointment => {
       events.push({
-        id: appointment.id,
+        id: `appointment-${appointment.id}`,
         title: `${appointment.customer_name || 'Müşteri'} - ${staff.name}`,
         start: appointment.start,
         end: appointment.end,
         backgroundColor: getStatusColorForCalendar(appointment.status),
         borderColor: getStatusColorForCalendar(appointment.status),
         extendedProps: {
+          type: 'appointment',
           appointment: appointment,
           staffName: staff.name,
         }
       })
     })
   })
+
+  // Add staff time offs (izinler)
+  staffTimeOffs.value.forEach(timeOff => {
+    events.push({
+      id: `timeoff-${timeOff.id}`,
+      title: `🚫 ${timeOff.user_name} - İzinli`,
+      start: timeOff.start,
+      end: timeOff.end,
+      backgroundColor: '#64748b', // Gray color for time offs
+      borderColor: '#475569',
+      display: 'background', // Show as background event
+      extendedProps: {
+        type: 'timeoff',
+        timeOff: timeOff,
+      }
+    })
+  })
+
   return events
 })
 
-// Initialize calendar title on mount
+// Fetch staff time offs for calendar
+async function fetchStaffTimeOffs() {
+  try {
+    const response = await fetch('/dashboard/time-offs/calendar')
+    if (response.ok) {
+      staffTimeOffs.value = await response.json()
+    }
+  } catch (error) {
+    console.error('Failed to fetch time offs:', error)
+  }
+}
+
+// Initialize calendar title and start clock on mount
 onMounted(async () => {
   await nextTick()
   setTimeout(() => {
     updateCalendarTitle()
   }, 100)
+
+  // Initialize and start the clock
+  updateCurrentDateTime()
+  dateTimeInterval = setInterval(updateCurrentDateTime, 1000)
+
+  // Load time offs for calendar
+  await fetchStaffTimeOffs()
 })
 
 function getStatusColorForCalendar(status) {
@@ -677,28 +818,99 @@ function getStatusColorForCalendar(status) {
   }
   return colors[status] || '#3b82f6'
 }
+
+// Notification functions
+async function openNotificationsDialog() {
+  isNotificationsDialogOpen.value = true
+  await fetchUpcomingAppointments()
+}
+
+async function fetchUpcomingAppointments() {
+  loadingNotifications.value = true
+  try {
+    const response = await fetch(`/dashboard/appointments/upcoming?days=${selectedDays.value}`)
+
+    if (response.ok) {
+      const data = await response.json()
+      upcomingAppointments.value = data
+    } else {
+      console.error('Failed to fetch appointments:', response.status)
+    }
+  } catch (error) {
+    console.error('Failed to fetch upcoming appointments:', error)
+  } finally {
+    loadingNotifications.value = false
+  }
+}
+
+function sendWhatsAppMessage(appointment) {
+  if (!appointment.customer_phone) {
+    alert('Müşteri telefon numarası bulunamadı!')
+    return
+  }
+
+  // Clean phone number (remove spaces, dashes, etc.)
+  const cleanPhone = appointment.customer_phone.replace(/[\s\-\(\)]/g, '')
+
+  // Add country code if not present (assuming Turkey +90)
+  const phoneWithCountry = cleanPhone.startsWith('90') ? cleanPhone : '90' + cleanPhone
+
+  // Create message
+  const message = `Merhaba ${appointment.customer_name},
+
+${appointment.staff_name} ile ${appointment.start_time_formatted} tarihinde randevunuz bulunmaktadır.
+
+Hizmetler: ${appointment.services}
+
+${appointment.days_remaining === 0 ? 'Randevunuz bugün!' : `Randevunuza ${appointment.days_remaining} gün kaldı.`}
+
+Salonumuzda görüşmek üzere! 💇‍♀️✨
+`
+
+  // Open WhatsApp with pre-filled message
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneWithCountry}&text=${encodeURIComponent(message)}`
+  window.open(whatsappUrl, '_blank')
+}
+
+function getDaysRemainingBadgeColor(days) {
+  if (days === 0) return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+  if (days === 1) return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300'
+  return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+}
 </script>
 
 <template>
   <Head title="Randevular" />
 
   <AppLayout :breadcrumbs="breadcrumbItems">
-    <div class="p-6 space-y-6">
+    <div class="">
       <!-- Calendar View -->
       <div v-if="viewMode === 'calendar' && staffList && staffList.length">
         <Card class="modern-calendar-card">
           <CardHeader class="border-b bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
             <!-- Custom Calendar Toolbar -->
-            <div class="space-y-4">
-              <!-- Top Row: Title and Create Buttons -->
+            <div class="space-y-4 p-4">
+              <!-- Top Row: Title, Current Time and Create Buttons -->
               <div class="flex justify-between items-center">
-                <CardTitle class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Randevu Takvimi
-                </CardTitle>
-                <Button @click="openCreateDialog()" class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800">
-                  <Plus class="w-4 h-4 mr-2" />
-                  Yeni Randevu
-                </Button>
+                <div class="flex flex-col gap-1">
+                  <CardTitle class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    Randevu Takvimi
+                  </CardTitle>
+                  <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <Clock class="w-4 h-4" />
+                    <span class="font-medium">{{ currentDateTime }}</span>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <Button @click="openNotificationsDialog()" variant="outline" class="border-green-600 text-green-600 hover:bg-green-50 dark:hover:bg-green-950">
+                    <Bell class="w-4 h-4 mr-2" />
+                    Bildirimler
+                  </Button>
+                  <Button @click="openCreateDialog()" class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800">
+                    <Plus class="w-4 h-4 mr-2" />
+                    Yeni Randevu
+                  </Button>
+                </div>
               </div>
 
               <!-- Bottom Row: Navigation and View Controls -->
@@ -1470,6 +1682,133 @@ function getStatusColorForCalendar(status) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <!-- Notifications Dialog -->
+      <Dialog v-model:open="isNotificationsDialogOpen">
+        <DialogContent class="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader class="modern-gradient-header">
+            <DialogTitle class="text-white flex items-center gap-2">
+              <Bell class="w-5 h-5" />
+              Yaklaşan Randevular - WhatsApp Bildirimleri
+            </DialogTitle>
+          </DialogHeader>
+
+          <div class="p-4">
+            <!-- Day Filter -->
+            <div class="mb-4 flex items-center gap-3">
+              <Label class="text-sm font-semibold">Filtreleme:</Label>
+              <div class="flex gap-2 flex-wrap">
+                <Button
+                  @click="selectedDays = 0; fetchUpcomingAppointments()"
+                  :variant="selectedDays === 0 ? 'default' : 'outline'"
+                  size="sm"
+                >
+                  Bugün
+                </Button>
+                <Button
+                  @click="selectedDays = 1; fetchUpcomingAppointments()"
+                  :variant="selectedDays === 1 ? 'default' : 'outline'"
+                  size="sm"
+                >
+                  Yarın
+                </Button>
+                <Button
+                  @click="selectedDays = 2; fetchUpcomingAppointments()"
+                  :variant="selectedDays === 2 ? 'default' : 'outline'"
+                  size="sm"
+                >
+                  2 Gün İçinde
+                </Button>
+                <Button
+                  @click="selectedDays = 3; fetchUpcomingAppointments()"
+                  :variant="selectedDays === 3 ? 'default' : 'outline'"
+                  size="sm"
+                >
+                  3 Gün İçinde
+                </Button>
+                <Button
+                  @click="selectedDays = 7; fetchUpcomingAppointments()"
+                  :variant="selectedDays === 7 ? 'default' : 'outline'"
+                  size="sm"
+                >
+                  1 Hafta
+                </Button>
+              </div>
+            </div>
+
+            <!-- Loading State -->
+            <div v-if="loadingNotifications" class="text-center py-8">
+              <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p class="mt-2 text-muted-foreground">Randevular yükleniyor...</p>
+            </div>
+
+            <!-- Appointments List -->
+            <div v-else-if="upcomingAppointments.length > 0" class="space-y-3">
+              <div
+                v-for="appointment in upcomingAppointments"
+                :key="appointment.id"
+                class="notification-card p-4 rounded-lg border hover:shadow-md transition-all duration-200"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex-1">
+                    <!-- Customer Name -->
+                    <div class="flex items-center gap-2 mb-2">
+                      <h4 class="font-bold text-lg">{{ appointment.customer_name }}</h4>
+                      <Badge :class="getDaysRemainingBadgeColor(appointment.days_remaining)">
+                        {{ appointment.days_remaining === 0 ? 'Bugün' : `${appointment.days_remaining} gün kaldı` }}
+                      </Badge>
+                    </div>
+
+                    <!-- Appointment Details -->
+                    <div class="space-y-1 text-sm text-muted-foreground">
+                      <div class="flex items-center gap-2">
+                        <Calendar class="w-4 h-4" />
+                        <span>{{ appointment.start_time_formatted }}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <DollarSign class="w-4 h-4" />
+                        <span>{{ appointment.staff_name }}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <Clock class="w-4 h-4" />
+                        <span>{{ appointment.services }}</span>
+                      </div>
+                      <div v-if="appointment.customer_phone" class="flex items-center gap-2">
+                        <MessageCircle class="w-4 h-4" />
+                        <span>{{ appointment.customer_phone }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- WhatsApp Button -->
+                  <Button
+                    @click="sendWhatsAppMessage(appointment)"
+                    :disabled="!appointment.customer_phone"
+                    class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white"
+                  >
+                    <MessageCircle class="w-4 h-4 mr-2" />
+                    WhatsApp Gönder
+                    <ExternalLink class="w-3 h-3 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty State -->
+            <div v-else class="text-center py-12">
+              <Bell class="w-16 h-16 mx-auto text-gray-400 mb-4" />
+              <p class="text-lg font-semibold text-muted-foreground">Yaklaşan randevu bulunamadı</p>
+              <p class="text-sm text-muted-foreground mt-2">Seçili dönem içinde onaylanmış randevu bulunmuyor.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button @click="isNotificationsDialogOpen = false" variant="outline">
+              Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   </AppLayout>
 </template>
@@ -1987,13 +2326,39 @@ function getStatusColorForCalendar(status) {
   font-weight: 500 !important;
   border: none !important;
   box-shadow: 0 2px 4px rgb(0 0 0 / 0.1) !important;
-  cursor: pointer !important;
+  cursor: move !important; /* Changed to move cursor for drag & drop */
   transition: all 0.2s !important;
 }
 
 .fc-event:hover {
   transform: translateY(-2px) !important;
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.15) !important;
+}
+
+/* Drag & Drop Visual Feedback */
+.fc-event-dragging {
+  opacity: 0.7 !important;
+  transform: scale(1.05) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25) !important;
+  z-index: 999 !important;
+}
+
+.fc-event-resizing {
+  opacity: 0.8 !important;
+}
+
+/* Resize Handles */
+.fc-event .fc-event-resizer {
+  width: 100% !important;
+  height: 8px !important;
+  cursor: ns-resize !important;
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+}
+
+.fc-event .fc-event-resizer-end {
+  bottom: 0 !important;
 }
 
 .fc-event-main {
@@ -2095,5 +2460,28 @@ function getStatusColorForCalendar(status) {
 :root.dark .fc .fc-popover {
   background-color: rgb(30 41 59);
   border-color: rgb(51 65 85);
+}
+
+/* Notification Card */
+.notification-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(249, 250, 251, 0.95) 100%);
+  border-left: 4px solid rgb(34 197 94);
+  transition: all 0.3s ease;
+}
+
+.notification-card:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
+}
+
+:root.dark .notification-card {
+  background: linear-gradient(135deg, rgba(31, 41, 55, 0.95) 0%, rgba(17, 24, 39, 0.95) 100%);
+}
+
+.modern-gradient-header {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  padding: 1.5rem;
+  margin: -1.5rem -1.5rem 0 -1.5rem;
+  border-radius: 0.5rem 0.5rem 0 0;
 }
 </style>

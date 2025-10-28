@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp, UserCog } from 'lucide-vue-next';
+import { BookOpen, Folder, LayoutGrid, Calendar, Users, TrendingUp, UserCog, CalendarOff, Scissors, Clock, Package, CreditCard } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
 const mainNavItems: NavItem[] = [
@@ -37,6 +37,22 @@ const mainNavItems: NavItem[] = [
         title: 'Personel',
         href: '/dashboard/staff',
         icon: UserCog,
+    },
+    {
+        title: 'Personel İzinleri',
+        href: '/dashboard/time-offs',
+        icon: CalendarOff,
+    },
+    {
+        title: 'Hizmetler',
+        href: '/dashboard/services',
+        icon: Scissors,
+    },
+    // 'Çalışma Saatleri' removed per request
+    {
+        title: 'Ürünler',
+        href: '/dashboard/products',
+        icon: Package,
     },
     {
         title: 'Gelir Raporları',

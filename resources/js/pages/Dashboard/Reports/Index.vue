@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.vue'
 import { Head, router } from '@inertiajs/vue3'
 import { dashboard } from '@/routes'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { TrendingUp, TrendingDown, DollarSign, Calendar, CreditCard, Banknote, Smartphone, RefreshCw, Plus, Trash2, Edit, Receipt, Home, FileText, Package } from 'lucide-vue-next'
+import { TrendingUp, TrendingDown, DollarSign, Calendar, CreditCard, Banknote, Smartphone, RefreshCw, Plus, Trash2, Edit, Receipt, Home, FileText, Package, FileDown, Clock } from 'lucide-vue-next'
 import { useForm } from '@inertiajs/vue3'
 
 const breadcrumbItems = [
@@ -31,6 +31,7 @@ const props = defineProps({
 
 const startDate = ref(props.dateRange?.start || '')
 const endDate = ref(props.dateRange?.end || '')
+const selectedPeriod = ref('month')
 
 const formatPrice = (price) => {
   if (!price) return '0 ₺'
@@ -87,7 +88,47 @@ const resetFilters = () => {
 
   startDate.value = firstDay.toISOString().split('T')[0]
   endDate.value = lastDay.toISOString().split('T')[0]
+  selectedPeriod.value = 'month'
   filterReports()
+}
+
+const changePeriod = (period) => {
+  selectedPeriod.value = period
+
+  // Eğer özel bir period seçiliyse, tarihleri temizle
+  if (period !== 'custom') {
+    startDate.value = ''
+    endDate.value = ''
+  }
+
+  router.get('/dashboard/reports', {
+    period: period,
+  }, {
+    preserveState: true,
+    preserveScroll: true,
+  })
+}
+
+const exportPdf = () => {
+  const params = new URLSearchParams()
+  if (selectedPeriod.value === 'custom' && startDate.value && endDate.value) {
+    params.append('start_date', startDate.value)
+    params.append('end_date', endDate.value)
+  } else {
+    params.append('period', selectedPeriod.value)
+  }
+  window.location.href = `/dashboard/reports/export/pdf?${params.toString()}`
+}
+
+const exportExcel = () => {
+  const params = new URLSearchParams()
+  if (selectedPeriod.value === 'custom' && startDate.value && endDate.value) {
+    params.append('start_date', startDate.value)
+    params.append('end_date', endDate.value)
+  } else {
+    params.append('period', selectedPeriod.value)
+  }
+  window.location.href = `/dashboard/reports/export/excel?${params.toString()}`
 }
 
 // Expense management
@@ -199,10 +240,75 @@ const getCategoryColor = (category) => {
         </div>
       </div>
 
-      <!-- Date Filter -->
+      <!-- Report Filter and Export -->
       <Card class="modern-card">
         <CardContent class="p-6">
-          <div class="flex flex-wrap gap-4 items-end">
+          <!-- Period Selection -->
+          <div class="mb-4">
+            <Label class="mb-3 block font-semibold">Rapor Dönemi Seç</Label>
+            <div class="flex flex-wrap gap-2">
+              <Button
+                @click="changePeriod('day')"
+                :variant="selectedPeriod === 'day' ? 'default' : 'outline'"
+                size="sm"
+              >
+                <Clock class="w-4 h-4 mr-1" />
+                Günlük
+              </Button>
+              <Button
+                @click="changePeriod('week')"
+                :variant="selectedPeriod === 'week' ? 'default' : 'outline'"
+                size="sm"
+              >
+                Haftalık
+              </Button>
+              <Button
+                @click="changePeriod('month')"
+                :variant="selectedPeriod === 'month' ? 'default' : 'outline'"
+                size="sm"
+              >
+                Aylık
+              </Button>
+              <Button
+                @click="changePeriod('3months')"
+                :variant="selectedPeriod === '3months' ? 'default' : 'outline'"
+                size="sm"
+              >
+                3 Ay
+              </Button>
+              <Button
+                @click="changePeriod('6months')"
+                :variant="selectedPeriod === '6months' ? 'default' : 'outline'"
+                size="sm"
+              >
+                6 Ay
+              </Button>
+              <Button
+                @click="changePeriod('9months')"
+                :variant="selectedPeriod === '9months' ? 'default' : 'outline'"
+                size="sm"
+              >
+                9 Ay
+              </Button>
+              <Button
+                @click="changePeriod('year')"
+                :variant="selectedPeriod === 'year' ? 'default' : 'outline'"
+                size="sm"
+              >
+                Yıllık (12 Ay)
+              </Button>
+              <Button
+                @click="changePeriod('custom')"
+                :variant="selectedPeriod === 'custom' ? 'default' : 'outline'"
+                size="sm"
+              >
+                Özel Tarih
+              </Button>
+            </div>
+          </div>
+
+          <!-- Custom Date Range (only show when custom is selected) -->
+          <div v-if="selectedPeriod === 'custom'" class="flex flex-wrap gap-4 items-end mb-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
             <div class="flex-1 min-w-[200px]">
               <Label for="start-date" class="mb-2 block">Başlangıç Tarihi</Label>
               <Input
@@ -224,6 +330,18 @@ const getCategoryColor = (category) => {
             <Button @click="filterReports" class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800">
               <Calendar class="w-4 h-4 mr-2" />
               Filtrele
+            </Button>
+          </div>
+
+          <!-- Export Buttons -->
+          <div class="flex flex-wrap gap-3 pt-4 border-t">
+            <Button @click="exportPdf" class="bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800">
+              <FileDown class="w-4 h-4 mr-2" />
+              PDF İndir
+            </Button>
+            <Button @click="exportExcel" class="bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800">
+              <FileDown class="w-4 h-4 mr-2" />
+              Excel İndir
             </Button>
             <Button @click="resetFilters" variant="outline">
               <RefreshCw class="w-4 h-4 mr-2" />
@@ -734,6 +852,7 @@ const getCategoryColor = (category) => {
 <style scoped>
 .stat-card {
   transition: all 0.3s ease;
+  padding: 0.5em;
 }
 
 .stat-card:hover {
@@ -744,6 +863,7 @@ const getCategoryColor = (category) => {
 .modern-card {
   transition: all 0.3s ease;
   border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 1rem;
 }
 
 :root.dark .modern-card {

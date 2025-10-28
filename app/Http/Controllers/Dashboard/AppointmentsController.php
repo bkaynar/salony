@@ -236,6 +236,7 @@ class AppointmentsController extends Controller
             'staff_id' => 'sometimes|exists:users,id',
             'customer_id' => 'sometimes|exists:customers,id',
             'start_time' => 'sometimes|string', // Changed from 'date' to prevent timezone conversion
+            'end_time' => 'sometimes|string', // Allow manual end_time update (for resize)
             'services' => 'sometimes|array|min:1',
             'services.*.service_id' => 'required_with:services|exists:services,id',
             'status' => 'sometimes|in:confirmed,completed,cancelled,no_show',
@@ -287,6 +288,19 @@ class AppointmentsController extends Controller
             }
 
             unset($validated['services']);
+        } elseif (isset($validated['start_time']) && !isset($validated['end_time'])) {
+            // If only start_time changed (drag without resize), recalculate end_time
+            $startTime = new \DateTime($validated['start_time']);
+            $duration = $appointment->total_duration;
+            $endTime = (clone $startTime)->modify("+{$duration} minutes");
+            $validated['end_time'] = $endTime->format('Y-m-d H:i:s');
+        } elseif (isset($validated['end_time']) && isset($validated['start_time'])) {
+            // If both start and end time changed (resize), recalculate duration
+            $startTime = new \DateTime($validated['start_time']);
+            $endTime = new \DateTime($validated['end_time']);
+            $diff = $startTime->diff($endTime);
+            $newDuration = ($diff->h * 60) + $diff->i;
+            $validated['total_duration'] = $newDuration;
         }
 
         $appointment->update($validated);
@@ -349,5 +363,97 @@ class AppointmentsController extends Controller
         ]);
 
         return back()->with('success', 'Randevu tamamlandı ve ödeme kaydedildi');
+    }
+
+    /**
+     * Get upcoming appointments for notifications
+     */
+    public function getUpcomingAppointments(Request $request)
+    {
+        $user = Auth::user();
+
+        if (! $user || ! $user->salon_id) {
+            return response()->json([]);
+        }
+
+        $daysAhead = (int) $request->input('days', 2); // Default 2 days ahead - CAST TO INT!
+
+        // If days = 0, show only today (from now onwards, not past appointments)
+        // If days = 1, show only tomorrow
+        // If days > 1, show from tomorrow to that many days ahead (exclude today)
+        if ($daysAhead === 0) {
+            // Only today - from current time onwards
+            $startDatetime = now()->format('Y-m-d H:i:s');
+            $endDatetime = now()->endOfDay()->format('Y-m-d H:i:s');
+
+            $appointments = Appointments::with(['customer', 'staff', 'services.service'])
+                ->where('salon_id', $user->salon_id)
+                ->where('status', 'confirmed')
+                ->whereRaw("REPLACE(start_time, 'T', ' ') BETWEEN ? AND ?", [
+                    $startDatetime,
+                    $endDatetime
+                ])
+                ->orderBy('start_time', 'asc')
+                ->get();
+        } elseif ($daysAhead === 1) {
+            // Only tomorrow
+            $startDate = now()->addDay()->startOfDay()->format('Y-m-d');
+            $endDate = now()->addDay()->endOfDay()->format('Y-m-d');
+
+            $appointments = Appointments::with(['customer', 'staff', 'services.service'])
+                ->where('salon_id', $user->salon_id)
+                ->where('status', 'confirmed')
+                ->whereRaw("DATE(REPLACE(start_time, 'T', ' ')) BETWEEN ? AND ?", [
+                    $startDate,
+                    $endDate
+                ])
+                ->orderBy('start_time', 'asc')
+                ->get();
+        } else {
+            // From tomorrow to X days ahead (exclude today's appointments)
+            $startDate = now()->addDay()->startOfDay()->format('Y-m-d');
+            $endDate = now()->addDays($daysAhead)->format('Y-m-d');
+
+            $appointments = Appointments::with(['customer', 'staff', 'services.service'])
+                ->where('salon_id', $user->salon_id)
+                ->where('status', 'confirmed')
+                ->whereRaw("DATE(REPLACE(start_time, 'T', ' ')) BETWEEN ? AND ?", [
+                    $startDate,
+                    $endDate
+                ])
+                ->orderBy('start_time', 'asc')
+                ->get();
+        }
+
+        $appointments = $appointments->map(function ($appointment) {
+                // Normalize date format (handle both 'T' separator and space separator)
+                $normalizedDate = str_replace('T', ' ', $appointment->start_time);
+                $startTime = new \DateTime($normalizedDate);
+                $now = new \DateTime();
+
+                // Calculate days remaining properly - compare dates only, not times
+                $startDate = new \DateTime($startTime->format('Y-m-d'));
+                $todayDate = new \DateTime($now->format('Y-m-d'));
+                $diff = $todayDate->diff($startDate);
+
+                $daysRemaining = 0;
+                if ($startDate >= $todayDate) {
+                    $daysRemaining = (int) $diff->format('%a');
+                }
+
+                return [
+                    'id' => $appointment->id,
+                    'customer_name' => $appointment->customer?->name,
+                    'customer_phone' => $appointment->customer?->phone,
+                    'staff_name' => $appointment->staff?->name,
+                    'start_time' => $appointment->start_time,
+                    'start_time_formatted' => $startTime->format('d.m.Y H:i'),
+                    'days_remaining' => $daysRemaining,
+                    'hours_remaining' => (int) $diff->format('%h'),
+                    'services' => $appointment->services->map(fn($s) => $s->service?->name)->join(', '),
+                ];
+            });
+
+        return response()->json($appointments);
     }
 }
